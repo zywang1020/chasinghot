@@ -7,184 +7,147 @@
     body {
       font-family: Arial, sans-serif;
       max-width: 600px;
-      margin: 30px auto;
+      margin: 50px auto;
       padding: 20px;
-      background: #f9f9f9;
+      border: 1px solid #ccc;
       border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      background: #f9f9f9;
     }
-    h2 {
-      text-align: center;
-    }
-    label, select, input, button {
+    label, select, input {
+      display: block;
+      margin: 15px 0 5px;
       width: 100%;
-      margin-top: 15px;
+    }
+    button {
+      margin-top: 20px;
       padding: 10px;
-      font-size: 16px;
+      width: 100%;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
     }
     #result {
       margin-top: 30px;
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
+      padding: 15px;
+      background-color: #fff;
       border: 1px solid #ccc;
+      border-radius: 5px;
     }
   </style>
 </head>
 <body>
+  <h2>🌞 Geo是炎值爆錶：即時體感溫度估算器</h2>
 
-<h2>🌞 Geo是炎值爆錶：即時體感溫度估算器</h2>
+  <label for="date">選擇日期：</label>
+  <input type="date" id="date" required>
 
-<label for="date">選擇日期：</label>
-<input type="date" id="date" required>
+  <label for="surface">選擇鋪面類型：</label>
+  <select id="surface">
+    <option value="柏油">柏油</option>
+    <option value="水泥">水泥</option>
+    <option value="PU">PU</option>
+    <option value="草地">草地</option>
+  </select>
 
-<label for="surface">選擇鋪面類型：</label>
-<select id="surface">
-  <option value="柏油">柏油</option>
-  <option value="水泥">水泥</option>
-  <option value="PU">PU</option>
-  <option value="草地">草地</option>
-</select>
+  <label for="station">選擇測站：</label>
+  <select id="station">
+    <option value="臺北">臺北</option>
+    <option value="板橋">板橋</option>
+    <option value="新竹">新竹</option>
+    <option value="嘉義">嘉義</option>
+    <option value="臺南">臺南</option>
+    <option value="高雄">高雄</option>
+    <option value="花蓮">花蓮</option>
+    <option value="臺東">臺東</option>
+  </select>
 
-<button onclick="startCalculation()">開始計算</button>
+  <button onclick="calculateTemp()">計算溫度</button>
 
-<div id="result"></div>
+  <div id="result"></div>
 
-<script>
-const apiKey = "CWA-234F005B-7959-436C-A0FF-BD4225C0E339";
+  <script>
+    const apiKey = "CWA-234F005B-7959-436C-A0FF-BD4225C0E339";
+    const proxy = "https://corsproxy.io/?";
 
-// 測站資料 (名稱+經緯度)，可以再擴充
-const stations = [
-  { name: "臺北", lat: 25.0375, lon: 121.5637 },
-  { name: "板橋", lat: 25.0143, lon: 121.4637 },
-  { name: "新竹", lat: 24.8066, lon: 120.9686 },
-  { name: "嘉義", lat: 23.4801, lon: 120.4491 },
-  { name: "臺南", lat: 22.9997, lon: 120.2270 },
-  { name: "高雄", lat: 22.6273, lon: 120.3014 },
-  { name: "花蓮", lat: 23.9722, lon: 121.6044 },
-  { name: "臺東", lat: 22.7583, lon: 121.1444 },
-];
+    const surfaceMap = {
+      "柏油": { albedo: 0.05 },
+      "水泥": { albedo: 0.30 },
+      "PU": { albedo: 0.10 },
+      "草地": { albedo: 0.25 },
+    };
 
-// 各鋪面反照率
-const surfaceMap = {
-  "柏油": { albedo: 0.05 },
-  "水泥": { albedo: 0.30 },
-  "PU": { albedo: 0.10 },
-  "草地": { albedo: 0.25 },
-};
-
-// 計算兩點間距離
-function getDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // 地球半徑(公里)
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) *
-            Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
-}
-
-// 找最近測站
-function findNearestStation(userLat, userLon) {
-  let minDistance = Infinity;
-  let nearestStation = null;
-  stations.forEach(station => {
-    const distance = getDistance(userLat, userLon, station.lat, station.lon);
-    if (distance < minDistance) {
-      minDistance = distance;
-      nearestStation = station;
-    }
-  });
-  return nearestStation;
-}
-
-// 取得氣象資料
-async function getWeatherData(stationName) {
-  try {
-    const radiationUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/C-B0025-001?Authorization=${apiKey}&format=JSON&locationName=${stationName}`;
-    const tempUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization=${apiKey}&format=JSON&locationName=${stationName}`;
-
-    const [radiationRes, tempRes] = await Promise.all([
-      fetch(radiationUrl),
-      fetch(tempUrl)
-    ]);
-
-    const radiationData = await radiationRes.json();
-    const tempData = await tempRes.json();
-
-    const C = parseFloat(radiationData.records.location[0].weatherElement[0].elementValue);
-    const temps = tempData.records.location[0].weatherElement;
-    const maxTemp = parseFloat(temps.find(el => el.elementName === "MaxT").elementValue);
-    const minTemp = parseFloat(temps.find(el => el.elementName === "MinT").elementValue);
-    const A = maxTemp - minTemp;
-
-    return { C, A };
-  } catch (error) {
-    console.error("取得氣象資料失敗：", error);
-    return null;
-  }
-}
-
-// 熱等級判斷
-function getHeatLevel(temp) {
-  if (temp >= 50) return "極高 🌡️";
-  if (temp >= 40) return "高 ☀️";
-  if (temp >= 35) return "中等 🌤️";
-  return "低 🌿";
-}
-
-// 主程式
-function startCalculation() {
-  if (!navigator.geolocation) {
-    alert("無法取得定位資訊！");
-    return;
-  }
-
-  navigator.geolocation.getCurrentPosition(async function(position) {
-    const userLat = position.coords.latitude;
-    const userLon = position.coords.longitude;
-
-    const nearestStation = findNearestStation(userLat, userLon);
-    if (!nearestStation) {
-      document.getElementById("result").innerHTML = "❌ 找不到附近測站！";
-      return;
+    function getHeatLevel(temp) {
+      if (temp >= 50) return "極高 🌡️";
+      if (temp >= 40) return "高 ☀️";
+      if (temp >= 35) return "中等 🌤️";
+      return "低 🌿";
     }
 
-    const surfaceType = document.getElementById("surface").value;
-    const weatherData = await getWeatherData(nearestStation.name);
-    if (!weatherData) {
-      document.getElementById("result").innerHTML = "❌ 無法取得氣象資料！";
-      return;
+    async function getWeatherData(locationName) {
+      const radiationUrl = `${proxy}https://opendata.cwa.gov.tw/api/v1/rest/datastore/C-B0025-001?Authorization=${apiKey}&format=JSON&locationName=${locationName}`;
+      const tempUrl = `${proxy}https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization=${apiKey}&format=JSON&locationName=${locationName}`;
+
+      try {
+        const [radiationRes, tempRes] = await Promise.all([
+          fetch(radiationUrl),
+          fetch(tempUrl)
+        ]);
+        const radiationData = await radiationRes.json();
+        const tempData = await tempRes.json();
+
+        const C = parseFloat(radiationData.records.location[0].weatherElement[0].elementValue);
+        const temps = tempData.records.location[0].weatherElement;
+        const maxTemp = parseFloat(temps.find(el => el.elementName === "MaxT").elementValue);
+        const minTemp = parseFloat(temps.find(el => el.elementName === "MinT").elementValue);
+        const A = maxTemp - minTemp;
+
+        return { C, A };
+      } catch (error) {
+        console.error("取得氣象資料失敗：", error);
+        return null;
+      }
     }
 
-    const { C, A } = weatherData;
-    const B = 0.3 * C;
-    const cloudFactor = A / B;
-    const actualRadiation = cloudFactor * C;
+    async function calculateTemp() {
+      const dateStr = document.getElementById("date").value;
+      const surfaceType = document.getElementById("surface").value;
+      const locationName = document.getElementById("station").value;
 
-    const albedo = surfaceMap[surfaceType].albedo;
-    const surfaceTemp = actualRadiation * (1 - albedo);
-    const feelTemp = surfaceTemp + 5;
-    const heatLevel = getHeatLevel(surfaceTemp);
+      if (!dateStr || !surfaceType || !locationName) {
+        document.getElementById("result").innerHTML = "❌ 請確實選擇日期、鋪面和測站！";
+        return;
+      }
 
-    document.getElementById("result").innerHTML = `
-      <strong>自動定位到最近測站：</strong> ${nearestStation.name}<br>
-      <strong>太陽輻射量（C 值）：</strong> ${C.toFixed(1)} W/m²<br>
-      <strong>實際溫差（A 值）：</strong> ${A.toFixed(1)}°C<br>
-      <strong>理論溫差（B 值）：</strong> ${B.toFixed(1)}°C<br>
-      <strong>雲量係數（A/B）：</strong> ${cloudFactor.toFixed(2)}<br>
-      <strong>修正後太陽輻射量：</strong> ${actualRadiation.toFixed(1)} W/m²<br>
-      <strong>${surfaceType} 表面溫度：</strong> ${surfaceTemp.toFixed(1)}°C<br>
-      <strong>體感溫度：</strong> ${feelTemp.toFixed(1)}°C<br>
-      <strong>熱負荷等級：</strong> ${heatLevel}
-    `;
-  }, function(error) {
-    console.error(error);
-    document.getElementById("result").innerHTML = "❌ 定位失敗，請確認允許網站取得位置。";
-  });
-}
-</script>
+      const weatherData = await getWeatherData(locationName);
+      if (!weatherData) {
+        document.getElementById("result").innerHTML = "❌ 無法取得氣象資料，請稍後再試。";
+        return;
+      }
 
+      const { C, A } = weatherData;
+      const B = 0.3 * C;
+      const cloudFactor = A / B;
+      const actualRadiation = cloudFactor * C;
+
+      const albedo = surfaceMap[surfaceType].albedo;
+      const surfaceTemp = actualRadiation * (1 - albedo);
+      const feelTemp = surfaceTemp + 5;
+      const heatLevel = getHeatLevel(surfaceTemp);
+
+      document.getElementById("result").innerHTML = `
+        <strong>測站：</strong> ${locationName}<br>
+        <strong>太陽輻射量（C 值）：</strong> ${C.toFixed(1)} W/m²<br>
+        <strong>實際溫差（A 值）：</strong> ${A.toFixed(1)}°C<br>
+        <strong>理論溫差（B 值）：</strong> ${B.toFixed(1)}°C<br>
+        <strong>雲量係數（A/B）：</strong> ${(cloudFactor).toFixed(2)}<br>
+        <strong>實際太陽輻射量：</strong> ${actualRadiation.toFixed(1)} W/m²<br>
+        <strong>${surfaceType} 表面溫度：</strong> ${surfaceTemp.toFixed(1)}°C<br>
+        <strong>體感溫度：</strong> ${feelTemp.toFixed(1)}°C<br>
+        <strong>熱負荷等級：</strong> ${heatLevel}
+      `;
+    }
+  </script>
 </body>
 </html>
