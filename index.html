@@ -2,27 +2,30 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Geo是炎值報錶</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 30px; }
-    label, select, input, button { display: block; margin: 15px 0; }
-    #result { margin-top: 30px; padding: 15px; border: 1px solid #ccc; border-radius: 8px; background: #f9f9f9; }
-  </style>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-  <h2>🌞 Geo是炎值報錶：即時體感溫度估算器</h2>
+<body class="bg-gradient-to-r from-yellow-100 via-pink-100 to-blue-100 min-h-screen flex flex-col items-center p-6">
 
-  <label for="surface">選擇鋪面類型：</label>
-  <select id="surface">
-    <option value="柏油">柏油</option>
-    <option value="水泥">水泥</option>
-    <option value="PU">PU</option>
-    <option value="草地">草地</option>
-  </select>
+  <h1 class="text-3xl font-bold text-gray-800 mb-6">🌞 Geo是炎值報錶</h1>
 
-  <button onclick="calculateTemp()">計算溫度</button>
+  <div class="w-full max-w-md bg-white p-6 rounded-2xl shadow-xl">
+    <label class="block mb-2 font-semibold text-gray-700">選擇日期：</label>
+    <input id="datePicker" type="date" class="w-full mb-4 p-2 border rounded-md">
 
-  <div id="result"></div>
+    <label class="block mb-2 font-semibold text-gray-700">選擇鋪面類型：</label>
+    <select id="surface" class="w-full mb-4 p-2 border rounded-md">
+      <option value="柏油">柏油</option>
+      <option value="水泥">水泥</option>
+      <option value="PU">PU</option>
+      <option value="草地">草地</option>
+    </select>
+
+    <button onclick="calculateTemp()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-full">計算溫度</button>
+
+    <div id="result" class="mt-6"></div>
+  </div>
 
 <script>
 const apiKey = "CWA-234F005B-7959-436C-A0FF-BD4225C0E339";
@@ -34,7 +37,17 @@ const surfaceMap = {
   "草地": { albedo: 0.25 },
 };
 
-// 取得目前位置
+const stations = [
+  { name: "臺北", lat: 25.0375, lon: 121.5637, id: "466920" },
+  { name: "板橋", lat: 25.0143, lon: 121.4672, id: "466910" },
+  { name: "新竹", lat: 24.8138, lon: 120.9675, id: "467571" },
+  { name: "嘉義", lat: 23.4950, lon: 120.4329, id: "467480" },
+  { name: "臺南", lat: 22.9975, lon: 120.2121, id: "467410" },
+  { name: "高雄", lat: 22.6273, lon: 120.3014, id: "467440" },
+  { name: "花蓮", lat: 23.9722, lon: 121.6060, id: "466990" },
+  { name: "臺東", lat: 22.7519, lon: 121.1500, id: "467660" }
+];
+
 function getLocation() {
   return new Promise((resolve, reject) => {
     if (navigator.geolocation) {
@@ -48,21 +61,8 @@ function getLocation() {
   });
 }
 
-// 找最近的測站 (模擬一個列表，可自行擴充)
-const stations = [
-  { name: "臺北", lat: 25.0375, lon: 121.5637, id: "466920" },
-  { name: "板橋", lat: 25.0143, lon: 121.4672, id: "466910" },
-  { name: "新竹", lat: 24.8138, lon: 120.9675, id: "467571" },
-  { name: "嘉義", lat: 23.4950, lon: 120.4329, id: "467480" },
-  { name: "臺南", lat: 22.9975, lon: 120.2121, id: "467410" },
-  { name: "高雄", lat: 22.6273, lon: 120.3014, id: "467440" },
-  { name: "花蓮", lat: 23.9722, lon: 121.6060, id: "466990" },
-  { name: "臺東", lat: 22.7519, lon: 121.1500, id: "467660" }
-];
-
-// 計算兩地距離
 function calcDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // 地球半徑
+  const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI/180;
   const dLon = (lon2 - lon1) * Math.PI/180;
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -72,7 +72,6 @@ function calcDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// 找最近測站
 function findNearestStation(userLat, userLon) {
   let minDist = Infinity;
   let nearest = null;
@@ -86,11 +85,11 @@ function findNearestStation(userLat, userLon) {
   return nearest;
 }
 
-// 取得氣象資料
-async function getWeather(stationId) {
-  const tempUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001?Authorization=${apiKey}&stationId=${stationId}`;
-  const radiationUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization=${apiKey}&stationId=${stationId}`;
-  
+async function getWeather(stationId, date) {
+  const formattedDate = date ? `&timeFrom=${date}T00:00:00&timeTo=${date}T23:59:59` : "";
+  const tempUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001?Authorization=${apiKey}&stationId=${stationId}${formattedDate}`;
+  const radiationUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization=${apiKey}&stationId=${stationId}${formattedDate}`;
+
   const [tempRes, radRes] = await Promise.all([
     fetch(tempUrl), fetch(radiationUrl)
   ]);
@@ -110,10 +109,12 @@ async function calculateTemp() {
     const nearestStation = findNearestStation(lat, lon);
 
     const surfaceType = document.getElementById("surface").value;
-    const { T, C } = await getWeather(nearestStation.id);
+    const date = document.getElementById("datePicker").value;
+
+    const { T, C } = await getWeather(nearestStation.id, date);
 
     const B = 0.3 * C;
-    const A = T - 20;  // 粗略估計地面白天與夜晚溫差，實際可根據API拿更精確數值
+    const A = T - 20;
     const cloudFactor = A / B;
     const actualRadiation = cloudFactor * C;
     const albedo = surfaceMap[surfaceType].albedo;
@@ -122,17 +123,18 @@ async function calculateTemp() {
     const feelTemp = surfaceTemp + 5;
 
     document.getElementById("result").innerHTML = `
-      <b>定位：</b>${nearestStation.name}<br>
-      <b>氣溫：</b>${T}°C<br>
-      <b>理論太陽輻射C：</b>${C.toFixed(1)} W/m²<br>
-      <b>推算雲量比：</b>${cloudFactor.toFixed(2)}<br>
-      <b>實際太陽輻射：</b>${actualRadiation.toFixed(1)} W/m²<br>
-      <b>${surfaceType} 表面溫度：</b>${surfaceTemp.toFixed(1)}°C<br>
-      <b>體感溫度：</b>${feelTemp.toFixed(1)}°C
+      <div class="bg-yellow-100 p-4 rounded-lg shadow-md">
+        <p class="font-semibold">📍 測站：${nearestStation.name}</p>
+        <p>🌡️ 氣溫：${T} °C</p>
+        <p>☀️ 太陽輻射：${C.toFixed(1)} W/m²</p>
+        <p>🌥️ 雲量估計：${cloudFactor.toFixed(2)}</p>
+        <p>🔥 ${surfaceType}表面溫度：${surfaceTemp.toFixed(1)} °C</p>
+        <p>🥵 體感溫度：${feelTemp.toFixed(1)} °C</p>
+      </div>
     `;
   } catch (err) {
     console.error(err);
-    document.getElementById("result").innerHTML = "⚡ 無法定位或取得資料，請允許定位或稍後再試";
+    document.getElementById("result").innerHTML = `<p class="text-red-600">⚡ 無法定位或取得資料，請允許定位或稍後再試</p>`;
   }
 }
 </script>
