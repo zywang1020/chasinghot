@@ -2,142 +2,105 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Geo是炎值報錶</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>表面溫度預估器</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+    #results {
+      margin-top: 20px;
+      background: #fff;
+      padding: 15px;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 8px;
+      border: 1px solid #ccc;
+      text-align: center;
+    }
+  </style>
 </head>
-<body class="bg-gradient-to-r from-yellow-100 via-pink-100 to-blue-100 min-h-screen flex flex-col items-center p-6">
+<body>
+  <h1>地表材質表面溫度預估</h1>
+  <div id="status">正在取得定位與氣象資料...</div>
+  <div id="results"></div>
 
-  <h1 class="text-3xl font-bold text-gray-800 mb-6">🌞 Geo是炎值報錶</h1>
+  <script>
+    const materials = {
+      "柏油": 0.05,
+      "水泥": 0.32,
+      "草地": 0.25,
+      "PU跑道": 0.10
+    };
 
-  <div class="w-full max-w-md bg-white p-6 rounded-2xl shadow-xl">
-    <label class="block mb-2 font-semibold text-gray-700">選擇日期：</label>
-    <input id="datePicker" type="date" class="w-full mb-4 p-2 border rounded-md">
+    const G_SC = 1367;
+    const sigma = 5.67e-8;
+    const epsilon = 0.95;
+    const deltaT_max = 12; // 可根據氣象署資料動態更新
 
-    <label class="block mb-2 font-semibold text-gray-700">選擇鋪面類型：</label>
-    <select id="surface" class="w-full mb-4 p-2 border rounded-md">
-      <option value="柏油">柏油</option>
-      <option value="水泥">水泥</option>
-      <option value="PU">PU</option>
-      <option value="草地">草地</option>
-    </select>
-
-    <button onclick="calculateTemp()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-full">計算溫度</button>
-
-    <div id="result" class="mt-6"></div>
-  </div>
-
-<script>
-const apiKey = "CWA-234F005B-7959-436C-A0FF-BD4225C0E339";
-
-const surfaceMap = {
-  "柏油": { albedo: 0.05 },
-  "水泥": { albedo: 0.30 },
-  "PU": { albedo: 0.10 },
-  "草地": { albedo: 0.25 },
-};
-
-const stations = [
-  { name: "臺北", lat: 25.0375, lon: 121.5637, id: "466920" },
-  { name: "板橋", lat: 25.0143, lon: 121.4672, id: "466910" },
-  { name: "新竹", lat: 24.8138, lon: 120.9675, id: "467571" },
-  { name: "嘉義", lat: 23.4950, lon: 120.4329, id: "467480" },
-  { name: "臺南", lat: 22.9975, lon: 120.2121, id: "467410" },
-  { name: "高雄", lat: 22.6273, lon: 120.3014, id: "467440" },
-  { name: "花蓮", lat: 23.9722, lon: 121.6060, id: "466990" },
-  { name: "臺東", lat: 22.7519, lon: 121.1500, id: "467660" }
-];
-
-function getLocation() {
-  return new Promise((resolve, reject) => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        pos => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
-        err => reject(err)
-      );
-    } else {
-      reject("Geolocation not supported.");
+    function getDayOfYear() {
+      const today = new Date();
+      const start = new Date(today.getFullYear(), 0, 0);
+      const diff = today - start;
+      const oneDay = 1000 * 60 * 60 * 24;
+      return Math.floor(diff / oneDay);
     }
-  });
-}
 
-function calcDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI/180;
-  const dLon = (lon2 - lon1) * Math.PI/180;
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) *
-            Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
-}
+    function calcTemperature(lat, deltaT_observed) {
+      const n = getDayOfYear();
+      const delta = 23.45 * Math.sin((2 * Math.PI / 365) * (n - 81));
+      const alpha = 90 - Math.abs(lat - delta);
+      const E0 = 1 + 0.033 * Math.cos((2 * Math.PI / 365) * n);
+      const Rs_max = G_SC * E0 * Math.sin(alpha * Math.PI / 180);
+      const Rs_observed = Rs_max * (deltaT_observed / deltaT_max);
 
-function findNearestStation(userLat, userLon) {
-  let minDist = Infinity;
-  let nearest = null;
-  stations.forEach(station => {
-    const d = calcDistance(userLat, userLon, station.lat, station.lon);
-    if (d < minDist) {
-      minDist = d;
-      nearest = station;
+      const results = {};
+      for (const [material, albedo] of Object.entries(materials)) {
+        const R_absorbed = Rs_observed * (1 - albedo);
+        const T = Math.pow((epsilon * R_absorbed / sigma), 0.25) - 273.15;
+        results[material] = T.toFixed(1);
+      }
+      return results;
     }
-  });
-  return nearest;
-}
 
-async function getWeather(stationId, date) {
-  const formattedDate = date ? `&timeFrom=${date}T00:00:00&timeTo=${date}T23:59:59` : "";
-  const tempUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001?Authorization=${apiKey}&stationId=${stationId}${formattedDate}`;
-  const radiationUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization=${apiKey}&stationId=${stationId}${formattedDate}`;
+    function displayResults(tempData) {
+      const container = document.getElementById('results');
+      let html = '<table><thead><tr><th>材質</th><th>估算表面溫度 (°C)</th></tr></thead><tbody>';
+      for (const [material, temp] of Object.entries(tempData)) {
+        html += `<tr><td>${material}</td><td>${temp}</td></tr>`;
+      }
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    }
 
-  const [tempRes, radRes] = await Promise.all([
-    fetch(tempUrl), fetch(radiationUrl)
-  ]);
-  const tempJson = await tempRes.json();
-  const radJson = await radRes.json();
+    // 模擬抓取氣象署資料
+    function fetchDeltaTObserved() {
+      // TODO: 替換成實際 API
+      return Promise.resolve(9.8); // 假設觀測到的最大日溫差是 9.8°C
+    }
 
-  const T = parseFloat(tempJson.records.location[0].weatherElement.find(e => e.elementName=="TEMP").elementValue);
-  const radiationData = radJson.records.location[0].weatherElement.find(e => e.elementName=="H_wa");
-  const C = parseFloat(radiationData ? radiationData.elementValue : 0);
-
-  return { T, C };
-}
-
-async function calculateTemp() {
-  try {
-    const {lat, lon} = await getLocation();
-    const nearestStation = findNearestStation(lat, lon);
-
-    const surfaceType = document.getElementById("surface").value;
-    const date = document.getElementById("datePicker").value;
-
-    const { T, C } = await getWeather(nearestStation.id, date);
-
-    const B = 0.3 * C;
-    const A = T - 20;
-    const cloudFactor = A / B;
-    const actualRadiation = cloudFactor * C;
-    const albedo = surfaceMap[surfaceType].albedo;
-
-    const surfaceTemp = actualRadiation * (1 - albedo);
-    const feelTemp = surfaceTemp + 5;
-
-    document.getElementById("result").innerHTML = `
-      <div class="bg-yellow-100 p-4 rounded-lg shadow-md">
-        <p class="font-semibold">📍 測站：${nearestStation.name}</p>
-        <p>🌡️ 氣溫：${T} °C</p>
-        <p>☀️ 太陽輻射：${C.toFixed(1)} W/m²</p>
-        <p>🌥️ 雲量估計：${cloudFactor.toFixed(2)}</p>
-        <p>🔥 ${surfaceType}表面溫度：${surfaceTemp.toFixed(1)} °C</p>
-        <p>🥵 體感溫度：${feelTemp.toFixed(1)} °C</p>
-      </div>
-    `;
-  } catch (err) {
-    console.error(err);
-    document.getElementById("result").innerHTML = `<p class="text-red-600">⚡ 無法定位或取得資料，請允許定位或稍後再試</p>`;
-  }
-}
-</script>
-
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      const lat = position.coords.latitude;
+      document.getElementById('status').textContent = `您的緯度為 ${lat.toFixed(2)}°，正在計算...`;
+      const deltaT_observed = await fetchDeltaTObserved();
+      const result = calcTemperature(lat, deltaT_observed);
+      displayResults(result);
+      document.getElementById('status').textContent = '結果如下：';
+    }, (err) => {
+      document.getElementById('status').textContent = '無法取得定位資料';
+    });
+  </script>
 </body>
 </html>
