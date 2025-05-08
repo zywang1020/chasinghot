@@ -8,13 +8,21 @@
     body {
       margin: 0;
       font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: start;
+    }
+    #selector {
+      padding: 20px;
     }
     #container {
       position: relative;
       width: 100vw;
-      height: 100vh;
-      background: url('your-image.png') no-repeat center center;
+      height: 90vh;
+      background: url('https://drive.google.com/uc?export=view&id=1G4gSLDerg6hTD11y3VXAVz5cGc-dEcS0') no-repeat center center;
       background-size: cover;
+      display: none;
     }
     .label {
       position: absolute;
@@ -31,6 +39,12 @@
   </style>
 </head>
 <body>
+  <div id="selector">
+    <label for="datePicker">選擇日期：</label>
+    <input type="date" id="datePicker" max="9999-12-31">
+    <button onclick="startCalculation()">開始計算</button>
+  </div>
+
   <div id="container">
     <div id="asphalt" class="label">柏油：計算中...</div>
     <div id="concrete" class="label">水泥：計算中...</div>
@@ -51,41 +65,54 @@
     const maxDeltaT = 12;
     const apiKey = 'CWA-234F005B-7959-436C-A0FF-BD4225C0E339';
 
-    navigator.geolocation.getCurrentPosition(pos => {
-      const lat = pos.coords.latitude;
+    function dayOfYear(date) {
+      const start = new Date(date.getFullYear(), 0, 0);
+      const diff = date - start;
+      return Math.floor(diff / 86400000);
+    }
 
-      const today = new Date();
-      const n = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 86400000);
+    function startCalculation() {
+      const selectedDate = new Date(document.getElementById("datePicker").value);
+      if (!selectedDate) {
+        alert("請選擇日期");
+        return;
+      }
+      document.getElementById("container").style.display = "block";
 
-      fetch(`https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization=${apiKey}&stationId=46692`)
-        .then(res => res.json())
-        .then(data => {
-          const elements = data.records.Station[0].weatherElement;
-          const maxT = parseFloat(elements.dailyMaxTemperature);
-          const minT = parseFloat(elements.dailyMinTemperature);
-          const deltaTobs = maxT - minT;
-          const cloudFactor = deltaTobs / maxDeltaT;
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = pos.coords.latitude;
+        const n = dayOfYear(selectedDate);
 
-          const delta = 23.45 * Math.sin((2 * Math.PI / 365) * (n - 81));
-          const alpha = 90 - Math.abs(lat - delta);
-          const E0 = 1 + 0.033 * Math.cos((2 * Math.PI / 365) * n);
-          const Rsmax = Gsc * E0 * Math.sin(alpha * Math.PI / 180);
-          const Rsobs = Rsmax * cloudFactor;
+        fetch(`https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization=${apiKey}&stationId=46692`)
+          .then(res => res.json())
+          .then(data => {
+            const elements = data.records.Station[0].weatherElement;
+            const maxT = parseFloat(elements.dailyMaxTemperature);
+            const minT = parseFloat(elements.dailyMinTemperature);
+            const deltaTobs = maxT - minT;
+            const cloudFactor = deltaTobs / maxDeltaT;
 
-          for (let id in materials) {
-            const { albedo, emissivity } = materials[id];
-            const absorbed = Rsobs * (1 - albedo);
-            const T = Math.pow(absorbed / (sigma * emissivity), 0.25);
-            document.getElementById(id).innerText = `${document.getElementById(id).innerText.split('：')[0]}：${T.toFixed(1)} °C`;
-          }
-        })
-        .catch(err => {
-          alert('無法取得氣象資料。');
-          console.error(err);
-        });
-    }, err => {
-      alert(\"無法取得定位資訊，請允許瀏覽器位置權限。\\n錯誤：\" + err.message);
-    });
+            const delta = 23.45 * Math.sin((2 * Math.PI / 365) * (n - 81));
+            const alpha = 90 - Math.abs(lat - delta);
+            const E0 = 1 + 0.033 * Math.cos((2 * Math.PI / 365) * n);
+            const Rsmax = Gsc * E0 * Math.sin(alpha * Math.PI / 180);
+            const Rsobs = Rsmax * cloudFactor;
+
+            for (let id in materials) {
+              const { albedo, emissivity } = materials[id];
+              const absorbed = Rsobs * (1 - albedo);
+              const T = Math.pow(absorbed / (sigma * emissivity), 0.25);
+              document.getElementById(id).innerText = `${document.getElementById(id).innerText.split('：')[0]}：${T.toFixed(1)} °C`;
+            }
+          })
+          .catch(err => {
+            alert('無法取得氣象資料。');
+            console.error(err);
+          });
+      }, err => {
+        alert("無法取得定位資訊，請允許瀏覽器位置權限。\n錯誤：" + err.message);
+      });
+    }
   </script>
 </body>
 </html>
