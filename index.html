@@ -2,104 +2,89 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <title>表面溫度預估器</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>地表溫度視覺化</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      background: #f4f4f4;
-      padding: 20px;
+      margin: 0;
+      font-family: sans-serif;
     }
-    h1 {
-      text-align: center;
-      color: #333;
+    #container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: url('your-image.png') no-repeat center center;
+      background-size: cover;
     }
-    #results {
-      margin-top: 20px;
-      background: #fff;
-      padding: 15px;
-      border-radius: 10px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    .label {
+      position: absolute;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      font-size: 14px;
     }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    th, td {
-      padding: 8px;
-      border: 1px solid #ccc;
-      text-align: center;
-    }
+    #asphalt { top: 60%; left: 45%; }
+    #concrete { top: 60%; left: 25%; }
+    #grass { top: 70%; left: 35%; }
+    #pu { top: 65%; left: 55%; }
   </style>
 </head>
 <body>
-  <h1>地表材質表面溫度預估</h1>
-  <div id="status">正在取得定位與氣象資料...</div>
-  <div id="results"></div>
+  <div id="container">
+    <div id="asphalt" class="label">柏油：計算中...</div>
+    <div id="concrete" class="label">水泥：計算中...</div>
+    <div id="grass" class="label">草地：計算中...</div>
+    <div id="pu" class="label">PU 跑道：計算中...</div>
+  </div>
 
   <script>
     const materials = {
-      "柏油": 0.05,
-      "水泥": 0.32,
-      "草地": 0.25,
-      "PU跑道": 0.10
+      asphalt: { albedo: 0.05, emissivity: 0.95 },
+      concrete: { albedo: 0.32, emissivity: 0.92 },
+      grass: { albedo: 0.25, emissivity: 0.97 },
+      pu: { albedo: 0.10, emissivity: 0.95 }
     };
 
-    const G_SC = 1367;
+    const Gsc = 1367;
     const sigma = 5.67e-8;
-    const epsilon = 0.95;
-    const deltaT_max = 12; // 可根據氣象署資料動態更新
+    const maxDeltaT = 12;
+    const apiKey = 'CWA-234F005B-7959-436C-A0FF-BD4225C0E339';
 
-    function getDayOfYear() {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const lat = pos.coords.latitude;
+
       const today = new Date();
-      const start = new Date(today.getFullYear(), 0, 0);
-      const diff = today - start;
-      const oneDay = 1000 * 60 * 60 * 24;
-      return Math.floor(diff / oneDay);
-    }
+      const n = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 86400000);
 
-    function calcTemperature(lat, deltaT_observed) {
-      const n = getDayOfYear();
-      const delta = 23.45 * Math.sin((2 * Math.PI / 365) * (n - 81));
-      const alpha = 90 - Math.abs(lat - delta);
-      const E0 = 1 + 0.033 * Math.cos((2 * Math.PI / 365) * n);
-      const Rs_max = G_SC * E0 * Math.sin(alpha * Math.PI / 180);
-      const Rs_observed = Rs_max * (deltaT_observed / deltaT_max);
+      fetch(`https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization=${apiKey}&stationId=46692`)
+        .then(res => res.json())
+        .then(data => {
+          const elements = data.records.Station[0].weatherElement;
+          const maxT = parseFloat(elements.dailyMaxTemperature);
+          const minT = parseFloat(elements.dailyMinTemperature);
+          const deltaTobs = maxT - minT;
+          const cloudFactor = deltaTobs / maxDeltaT;
 
-      const results = {};
-      for (const [material, albedo] of Object.entries(materials)) {
-        const R_absorbed = Rs_observed * (1 - albedo);
-        const T = Math.pow((epsilon * R_absorbed / sigma), 0.25) - 273.15;
-        results[material] = T.toFixed(1);
-      }
-      return results;
-    }
+          const delta = 23.45 * Math.sin((2 * Math.PI / 365) * (n - 81));
+          const alpha = 90 - Math.abs(lat - delta);
+          const E0 = 1 + 0.033 * Math.cos((2 * Math.PI / 365) * n);
+          const Rsmax = Gsc * E0 * Math.sin(alpha * Math.PI / 180);
+          const Rsobs = Rsmax * cloudFactor;
 
-    function displayResults(tempData) {
-      const container = document.getElementById('results');
-      let html = '<table><thead><tr><th>材質</th><th>估算表面溫度 (°C)</th></tr></thead><tbody>';
-      for (const [material, temp] of Object.entries(tempData)) {
-        html += `<tr><td>${material}</td><td>${temp}</td></tr>`;
-      }
-      html += '</tbody></table>';
-      container.innerHTML = html;
-    }
-
-    // 模擬抓取氣象署資料
-    function fetchDeltaTObserved() {
-      // TODO: 替換成實際 API
-      return Promise.resolve(9.8); // 假設觀測到的最大日溫差是 9.8°C
-    }
-
-    navigator.geolocation.getCurrentPosition(async (position) => {
-      const lat = position.coords.latitude;
-      document.getElementById('status').textContent = `您的緯度為 ${lat.toFixed(2)}°，正在計算...`;
-      const deltaT_observed = await fetchDeltaTObserved();
-      const result = calcTemperature(lat, deltaT_observed);
-      displayResults(result);
-      document.getElementById('status').textContent = '結果如下：';
-    }, (err) => {
-      document.getElementById('status').textContent = '無法取得定位資料';
+          for (let id in materials) {
+            const { albedo, emissivity } = materials[id];
+            const absorbed = Rsobs * (1 - albedo);
+            const T = Math.pow(absorbed / (sigma * emissivity), 0.25);
+            document.getElementById(id).innerText = `${document.getElementById(id).innerText.split('：')[0]}：${T.toFixed(1)} °C`;
+          }
+        })
+        .catch(err => {
+          alert('無法取得氣象資料。');
+          console.error(err);
+        });
+    }, err => {
+      alert(\"無法取得定位資訊，請允許瀏覽器位置權限。\\n錯誤：\" + err.message);
     });
   </script>
 </body>
